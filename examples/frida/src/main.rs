@@ -8,7 +8,7 @@ fn main() {
         RadiusOption::LoadPlugins(true),
     ];
 
-    let mut radius = Radius::new_with_options(Some("frida://attach/usb//iOSCrackMe"), &options);
+    let mut radius = Radius::new_with_options(Some("frida://attach/iOSCrackMe"), &options);
 
     // turn off cache to write value back to real mem
     radius.set_option("io.cache", "false");

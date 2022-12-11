@@ -9,6 +9,8 @@ use std::u8;
 use std::collections::HashMap;
 use std::path::Path;
 use std::{thread, time};
+use std::fs;
+use std::io::{Write, BufReader, BufRead, Error};
 
 pub const STACK_START: u64 = 0xfff00000;
 pub const STACK_SIZE: u64 = 0x78000 * 2;
@@ -309,7 +311,7 @@ pub struct FridaImport {
     pub module: String,
     pub r#type: String,
     pub name: String,
-    
+
     #[serde(deserialize_with = "from_hex")]
     pub address: u64,
 }
@@ -367,7 +369,7 @@ pub struct ObjCClassInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JavaClassInfo {
-    
+
     pub classname: String,
     pub vaddr: u64,
 
@@ -812,7 +814,7 @@ impl R2Api {
         let cmd = format!("aer {}={}", reg, value);
         let _r = self.cmd(cmd.as_str());
     }
-    
+
     pub fn get_syscall_str(&mut self, sys_num: u64) -> R2Result<String> {
         let cmd = format!("asl {}", sys_num);
         let ret = self.cmd(cmd.as_str())?;
@@ -874,26 +876,37 @@ impl R2Api {
         let _r = self.cmd(&format!(".aeis {} {} {} @ SP", argc, argv, env));
     }
 
+    pub fn frida_script(&mut self, expr: &str) -> Result<(), Error>{
+        let path = "myscript.js";
+        if std::path::Path::new(path).exists() {
+            fs::remove_file(path)?;
+        }
+        let mut output = std::fs::File::create(path)?;
+        write!(output, "{}", String::from(expr))?;
+        self.cmd(":. myscript.js").unwrap();
+        Ok(())
+    }
+
     pub fn init_frida(&mut self, addr: u64) -> R2Result<HashMap<String, String>> {
         // we are reaching levels of jankiness previously thought to be impossible
         let alloc = self.cmd(":dma 4096").unwrap();
         let func = format!(
-            "{{ptr('{}').writeUtf8String(JSON.stringify(this.context))}}",
+            "{{ptr({}).writeUtf8String(JSON.parse(JSON.stringify(this.context),(key,val)=>(typeof val!=='object'?String(val):JSON.stringify(val))))}}",
             alloc.trim()
         );
-
         let script_data = format!(
-            ": Interceptor.attach(ptr('0x{:x}'),function(){});:db {}",
-            addr, func, addr
+            "Interceptor.attach(ptr(0x{:x}),function(){})",
+            addr, func
         );
-
-        self.cmd(&script_data).unwrap();
+        self.frida_script(&script_data);
         loop {
             thread::sleep(time::Duration::from_millis(100));
-            if self.cmd(&format!("ps 1 @ {}", alloc))?.trim() == "{" {
-                let out = self.cmd(&format!("psz 4096 @ {}", alloc))?;
+            if self.cmd(&format!(": Memory.readUtf8String(ptr('{}'))[0]", alloc.trim()))?.trim() == "{" {
+                let out = self.cmd(&format!(": Memory.readUtf8String(ptr('{}'))", alloc.trim()))?;
                 self.cmd(&format!(":dma- {}", alloc)).unwrap();
-                break r2_result(serde_json::from_str(&out));
+                let v : serde_json::Value = serde_json::from_str(out.as_str()).unwrap();
+                println!("{}", out);
+                break Ok(serde_json::from_str(out.as_str()).unwrap());
             }
         }
     }
@@ -930,10 +943,10 @@ impl R2Api {
             Ok(f_imps
                 .iter()
                 .map(|f| Import {
-                    name: f.name.to_owned(), 
-                    r#type: f.r#type.to_owned(), 
-                    ordinal: f.index, 
-                    plt: f.address, 
+                    name: f.name.to_owned(),
+                    r#type: f.r#type.to_owned(),
+                    ordinal: f.index,
+                    plt: f.address,
                     bind: f.name.to_owned()
                 }).collect()
             )

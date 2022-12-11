@@ -247,8 +247,19 @@ impl Radius {
         let context = self.r2api.init_frida(addr).unwrap();
 
         for reg in context.keys() {
-            let val = u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0);
-            state.registers.set(reg, vc(val));
+            if &context[reg] == "{}" || (&context[reg]).contains(".") || (&context[reg]).contains("-") {
+                continue
+            } else if reg == "nzcv" || &context[reg] == "0" {
+                // let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0u64);
+                // state.registers.set(reg, vc(val));
+                continue
+            } else if (&context[reg]).contains("x"){
+                let val = u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0u64);
+                state.registers.set(reg, vc(val));
+            } else {
+                let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0u64);
+                state.registers.set(reg, vc(val));
+            }
         }
         state
     }
