@@ -249,15 +249,21 @@ impl Radius {
         for reg in context.keys() {
             if &context[reg] == "{}" || (&context[reg]).contains(".") || (&context[reg]).contains("-") {
                 continue
-            } else if reg == "nzcv" || &context[reg] == "0" {
-                // let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0u64);
-                // state.registers.set(reg, vc(val));
+            } else if reg == "nzcv" {
+                let flags = u64::from_str_radix(&context[reg], 10).unwrap_or(0);
+                let length = flags.count_ones() + flags.count_zeros();
+                for (n, r) in [28,29,30,31].into_iter()
+                    .zip(["vf", "cf", "zf", "nf"].into_iter()) {
+                    state.registers.set(r, vc(flags >> n & 1));
+                }
                 continue
             } else if (&context[reg]).contains("x"){
-                let val = u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0u64);
+                let val = u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0);
                 state.registers.set(reg, vc(val));
+            } else if &context[reg] == "0" {
+                state.registers.set(reg, vc(0x0u64));
             } else {
-                let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0u64);
+                let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0);
                 state.registers.set(reg, vc(val));
             }
         }

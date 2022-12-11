@@ -905,7 +905,7 @@ impl R2Api {
                 let out = self.cmd(&format!(": Memory.readUtf8String(ptr('{}'))", alloc.trim()))?;
                 self.cmd(&format!(":dma- {}", alloc)).unwrap();
                 let v : serde_json::Value = serde_json::from_str(out.as_str()).unwrap();
-                println!("{}", out);
+                println!("{}", v);
                 break Ok(serde_json::from_str(out.as_str()).unwrap());
             }
         }
