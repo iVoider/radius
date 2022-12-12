@@ -229,7 +229,10 @@ impl Registers {
                 (Value::Concrete(new, t1), Value::Concrete(old, _t2)) => {
                     let new_mask = if size == 64 {
                         std::u64::MAX
+                    } else if size == 32 {
+                        u64::from(std::u32::MAX)
                     } else {
+                        println!("Size {}", size);
                         (1 << size) - 1
                     };
                     let mask = !(new_mask << offset);

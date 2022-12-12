@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::{thread, time};
 use std::fs;
-use std::io::{Write, BufReader, BufRead, Error};
+use std::io::{Write, Error};
 
 pub const STACK_START: u64 = 0xfff00000;
 pub const STACK_SIZE: u64 = 0x78000 * 2;
@@ -876,36 +876,50 @@ impl R2Api {
         let _r = self.cmd(&format!(".aeis {} {} {} @ SP", argc, argv, env));
     }
 
-    pub fn frida_script(&mut self, expr: &str) -> Result<(), Error>{
+    pub fn frida_script(&mut self, expr: &str) -> Result<String, Error>{
         let path = "myscript.js";
         if std::path::Path::new(path).exists() {
             fs::remove_file(path)?;
         }
         let mut output = std::fs::File::create(path)?;
         write!(output, "{}", String::from(expr))?;
-        self.cmd(":. myscript.js").unwrap();
-        Ok(())
+        return Ok(self.cmd(":. myscript.js").unwrap_or_default());
     }
 
     pub fn init_frida(&mut self, addr: u64) -> R2Result<HashMap<String, String>> {
         // we are reaching levels of jankiness previously thought to be impossible
-        let alloc = self.cmd(":dma 4096").unwrap();
-        let func = format!(
-            "{{ptr({}).writeUtf8String(JSON.parse(JSON.stringify(this.context),(key,val)=>(typeof val!=='object'?String(val):JSON.stringify(val))))}}",
-            alloc.trim()
+        // I'll make it even worser
+
+        let app_sandbox_directory_command = format!(
+            "var NSHomeDirectory = new NativeFunction(ptr(Module.findExportByName(\"Foundation\", \"NSHomeDirectory\")), \'pointer\', []);var path = new ObjC.Object(NSHomeDirectory());throw new Error(path)"
         );
+        let output = self.frida_script(&app_sandbox_directory_command).unwrap();
+        let cutted: &str = &output[17..output.chars().count() - 3];
+        let app_state_path = format!("{}/tmp/fridastate.txt", &cutted);
+
+        if std::path::Path::new(&app_state_path).exists() {
+            fs::remove_file(&app_state_path);
+        }
+
+        let func = format!(
+            "{{var file = new File(\"{}\", \"w\");file.write(JSON.parse(JSON.stringify(this.context),(key,val)=>(typeof val!==\'object\'?String(val):JSON.stringify(val))));file.close();recv('continue',function(){{}}).wait()}}",
+            app_state_path
+        );
+
         let script_data = format!(
             "Interceptor.attach(ptr(0x{:x}),function(){})",
             addr, func
         );
-        self.frida_script(&script_data);
+        let _ = self.frida_script(&script_data);
         loop {
             thread::sleep(time::Duration::from_millis(100));
-            if self.cmd(&format!(": Memory.readUtf8String(ptr('{}'))[0]", alloc.trim()))?.trim() == "{" {
-                let out = self.cmd(&format!(": Memory.readUtf8String(ptr('{}'))", alloc.trim()))?;
-                self.cmd(&format!(":dma- {}", alloc)).unwrap();
+            if std::path::Path::new(&app_state_path).exists() {
+                let out = fs::read_to_string(&app_state_path).unwrap();
                 let v : serde_json::Value = serde_json::from_str(out.as_str()).unwrap();
                 println!("{}", v);
+                if std::path::Path::new(&app_state_path).exists() {
+                    fs::remove_file(&app_state_path);
+                }
                 break Ok(serde_json::from_str(out.as_str()).unwrap());
             }
         }

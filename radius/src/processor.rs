@@ -878,6 +878,7 @@ impl Processor {
                     }
                 }
                 StateStatus::Crash(_addr, _len) => {
+                    println!("Crash detected!");
                     self.crashes.push(current_state.to_owned());
                 }
                 _ => {}

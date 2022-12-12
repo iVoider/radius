@@ -499,7 +499,8 @@ impl Memory {
 
         let mut index = 0;
         for count in 0..chunks {
-            let caddr = (addr & mask) + size * count;
+            let caddr = (addr & mask).checked_add(size * count).unwrap();
+
             let mut offset = (addr & not_mask) * (count == 0) as u64;
 
             let mem = if let Some(m) = self.mem.get(&caddr) {
