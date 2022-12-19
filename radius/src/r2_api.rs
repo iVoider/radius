@@ -886,7 +886,7 @@ impl R2Api {
         return Ok(self.cmd(":. myscript.js").unwrap_or_default());
     }
 
-    pub fn init_frida(&mut self, addr: u64) -> R2Result<HashMap<String, String>> {
+    pub fn init_frida(&mut self, addr: u64) -> R2Result<HashMap<String, u64>> {
         // we are reaching levels of jankiness previously thought to be impossible
         // I'll make it even worser
 
@@ -902,8 +902,9 @@ impl R2Api {
         }
 
         let func = format!(
-            "{{var file = new File(\"{}\", \"w\");file.write(JSON.parse(JSON.stringify(this.context),(key,val)=>(typeof val!==\'object\'?String(val):JSON.stringify(val))));file.close();recv('continue',function(){{}}).wait()}}",
-            app_state_path
+            "{{var file = new File(\"{}\", \"w\");file.write(JSON.stringify(this.context,{}));file.close();recv('continue',function(){{}}).wait()}}",
+            app_state_path,
+            "function(k,v){return v && typeof v === 'object' && Object.keys(v).length ? v:''+v}"
         );
 
         let script_data = format!(
@@ -920,9 +921,28 @@ impl R2Api {
                 if std::path::Path::new(&app_state_path).exists() {
                     fs::remove_file(&app_state_path);
                 }
-                break Ok(serde_json::from_str(out.as_str()).unwrap());
+                let context: Result<HashMap<String, String>, _> = serde_json::from_str(out.as_str());
+                break Ok(self.parse_context(context.unwrap_or_default()));
             }
         }
+    }
+
+    fn parse_context(&self, context: HashMap<String, String>) -> HashMap<String, u64> {
+        let mut newcon = HashMap::new();
+        for reg in context.keys() {
+            if reg == "nzcv" {
+                let flags = u64::from_str_radix(&context[reg], 10).unwrap_or(0);
+                for (n, r) in [28,29,30,31].iter()
+                    .zip(["vf", "cf", "zf", "nf"].iter()) {
+                    newcon.insert(r.to_string().to_owned(), flags >> n & 1);
+                }
+            } else if context[reg].starts_with("0x") {
+                newcon.insert(reg.to_owned(), u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0));
+            } else if !context[reg].contains(".") && !context[reg].starts_with("[") {
+                newcon.insert(reg.to_owned(), u64::from_str_radix(&context[reg], 10).unwrap_or(0));
+            }
+        }
+        newcon
     }
 
     pub fn set_option(&mut self, key: &str, value: &str) -> R2Result<String> {

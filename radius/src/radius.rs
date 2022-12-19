@@ -247,23 +247,8 @@ impl Radius {
         let context = self.r2api.init_frida(addr).unwrap();
 
         for reg in context.keys() {
-            if &context[reg] == "{}" || (&context[reg]).contains(".") || (&context[reg]).contains("-") {
-                continue
-            } else if reg == "nzcv" {
-                let flags = u64::from_str_radix(&context[reg], 10).unwrap_or(0);
-                for (n, r) in [28,29,30,31].iter()
-                    .zip(["vf", "cf", "zf", "nf"].iter()) {
-                    state.registers.set(r, vc(flags >> n & 1));
-                }
-                continue
-            } else if (&context[reg]).contains("x"){
-                let val = u64::from_str_radix(&context[reg][2..], 16).unwrap_or(0);
-                state.registers.set(reg, vc(val));
-            } else if &context[reg] == "0" {
-                state.registers.set(reg, vc(0u64));
-            } else {
-                let val = u64::from_str_radix(&context[reg], 10).unwrap_or(0);
-                state.registers.set(reg, vc(val));
+            if state.registers.regs.contains_key(reg) {
+                state.registers.set(reg, vc(context[reg]));
             }
         }
         state
